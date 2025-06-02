@@ -1,0 +1,2099 @@
+---
+title: "TFG analysis"
+output: html_document
+date: "2025-04-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Introduction
+
+This notebook analyzes the differences in ROM, SPEED, CC, and SYNERGY between dominant and non-dominant arms under various loads during elbow flexion-extension.
+
+## 2. Libraries
+
+```{r}
+# Load required libraries for statistical analysis and visualization
+
+library(readxl)       # To import Excel files (.xlsx) containing raw or preprocessed data
+library(dplyr)        # For data manipulation (filtering, mutating, grouping, etc.)
+library(tidyr)        # For reshaping data (e.g., pivoting from wide to long format)
+library(ggplot2)      # For creating detailed and customizable plots
+library(ggpubr)       # For adding statistical annotations (e.g., p-values) to ggplot2 charts
+library(patchwork)    # For combining multiple ggplot2 plots into a single layout
+library(kableExtra)   # For formatting tables for reports (e.g., HTML or PDF output)
+library(rstatix)      # For running common statistical tests and detecting outliers easily
+library(afex)         # For performing ANOVAs using aov_ez() with within-subject designs
+library(stringr)      # For performing ANOVAs
+library(purrr)        # For performing ANOVAs
+
+```
+
+`{library(kableExtra)}`
+
+## 3. Loading data
+
+```{r}
+data <- read_excel("MduranceDataParticipantsData.xlsx")
+head(data)
+```
+
+```{r}
+colnames(data)
+```
+
+## Mean +- sd age and % of males and females
+
+```{r}
+
+mean_age_all <- mean(data$Age, na.rm = TRUE)
+sd_age_all <- sd(data$Age, na.rm = TRUE)
+
+cat("Mean Age (All participants):", mean_age_all,"±",sd_age_all," years\n\n")
+
+
+total_participants =20
+
+# Count Females and Males (unique subjects only)
+# First create a unique dataframe by Subject
+unique_participants <- data %>%
+  select(Subject, Gender) %>%
+  distinct()
+
+female_count <- sum(unique_participants$Gender == "FEMALE", na.rm = TRUE)
+male_count <- sum(unique_participants$Gender == "MALE", na.rm = TRUE)
+
+# Calculate percentages
+female_percentage <- (female_count / total_participants) * 100
+male_percentage <- (male_count / total_participants) * 100
+
+
+cat("Total participants:", total_participants, "\n")
+cat("Females:", female_count, "participants (", round(female_percentage, 1), "%)\n")
+cat("Males:", male_count, "participants (", round(male_percentage, 1), "%)\n")
+
+```
+
+## 1. ROM
+
+### Checking if data is within normal value limits
+
+```{r}
+# 1. Mean ROM by Arm and Load
+rom_by_arm_load <- data %>%
+  group_by(`Load (kg)`, Arm) %>%
+  summarise(
+    mean_rom_max = mean(ROM_Max, na.rm = TRUE),
+    mean_rom_min = mean(ROM_Min, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 2. Mean ROM by Arm, Load, and Gender
+rom_by_arm_load_gender <- data %>%
+  group_by(`Load (kg)`, Arm, Gender) %>%
+  summarise(
+    mean_rom_max = mean(ROM_Max, na.rm = TRUE),
+    mean_rom_min = mean(ROM_Min, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+print(rom_by_arm_load)
+print(rom_by_arm_load_gender)
+
+```
+
+### Checking mean ROM max and mean ROM min values at each load and plotting.
+
+```{r}
+
+for (load_value in c(0, 1, 2)) {
+  cat("\n--- Load:", load_value, "kg ---\n")
+  
+  # Filter for current load
+  data_load <- data %>% filter(`Load (kg)` == load_value)
+  
+  # DOM arm
+  mean_rom_max_dom <- mean(data_load$ROM_Max[data_load$Arm == "DOM"], na.rm = TRUE)
+  mean_rom_min_dom <- mean(data_load$ROM_Min[data_load$Arm == "DOM"], na.rm = TRUE)
+  
+  # NDOM arm
+  mean_rom_max_ndom <- mean(data_load$ROM_Max[data_load$Arm == "NDOM"], na.rm = TRUE)
+  mean_rom_min_ndom <- mean(data_load$ROM_Min[data_load$Arm == "NDOM"], na.rm = TRUE)
+  
+  # Print results
+  cat("DOM Mean ROM_Max:", mean_rom_max_dom, "degrees\n")
+  cat("DOM Mean ROM_Min:", mean_rom_min_dom, "degrees\n")
+  cat("NDOM Mean ROM_Max:", mean_rom_max_ndom, "degrees\n")
+  cat("NDOM Mean ROM_Min:", mean_rom_min_ndom, "degrees\n")
+}
+
+rom_summary_plot <- data %>%
+  group_by(`Load (kg)`, Arm) %>%
+  summarise(
+    mean_rom_max = mean(ROM_Max, na.rm = TRUE),
+    mean_rom_min = mean(ROM_Min, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+rom_summary_long <- rom_summary_plot %>%
+  pivot_longer(cols = c(mean_rom_max, mean_rom_min), 
+               names_to = "ROM_Type", 
+               values_to = "ROM_Value") %>%
+  mutate(ROM_Type = dplyr::recode(ROM_Type, 
+                           "mean_rom_max" = "ROM Max", 
+                           "mean_rom_min" = "ROM Min"))
+
+# Combined plot
+plot_rom_combined <- ggplot(rom_summary_long, 
+                            aes(x = `Load (kg)`, 
+                                y = ROM_Value, 
+                                color = Arm, 
+                                linetype = ROM_Type, 
+                                group = interaction(Arm, ROM_Type))) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3) +
+  labs(title = "ROM Max and Min across Load Conditions (DOM vs NDOM)",
+       x = "Load (kg)",
+       y = "Mean ROM (degrees)",
+       color = "Arm",
+       linetype = "ROM Type") +
+  theme_minimal()
+
+# ROM Max plot
+plot_rom_max <- ggplot(rom_summary_plot, aes(x = `Load (kg)`, y = mean_rom_max, color = Arm, group = Arm)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3) +
+  geom_label(aes(label = paste0(round(mean_rom_max, 1), "°")), 
+           nudge_y = 0.5,
+           color = "black",
+           fill="white",
+           size = 3.5,
+           label.size = 0.1,
+           label.padding = unit(0.1, "lines"),
+           show.legend = FALSE)+
+  scale_y_continuous(expand = expansion(mult = c(0.1, 0.1))) +
+  labs(title = "ROM Max",
+       x = "Load (kg)",
+       y = "Mean (degrees)",
+       color = "Arm") +
+  coord_cartesian(clip = "off") +
+  theme_minimal()
+
+# ROM Min plot
+plot_rom_min <- ggplot(rom_summary_plot, aes(x = `Load (kg)`, y = mean_rom_min, color = Arm, group = Arm)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3) +
+  geom_label(aes(label = paste0(round(mean_rom_min, 1), "°")), 
+           nudge_y = 0.5,
+           color = "black",
+           fill="white",
+           size = 3.5,
+           label.size = 0.1,
+           label.padding = unit(0.1, "lines"),
+           show.legend = FALSE)+
+ 
+   scale_y_continuous(expand = expansion(mult = c(0.1, 0.1))) +
+  labs(title = "ROM Min",
+       x = "Load (kg)",
+       y = " ",
+       color = "Arm") +
+  coord_cartesian(clip = "off") +
+  theme_minimal()
+
+(plot_rom_max + plot_rom_min) +
+  plot_layout(ncol = 2, guides = "collect") +
+  plot_annotation(title = " ") &
+  theme(legend.position = "right",
+        plot.margin = margin(1, 2, 1, 2))
+
+```
+
+### Checking outliers for ROM_max and ROM_Min at each load and arm.
+
+`{rstatix}` package's `identify_outliers()` function, which detects **univariate outliers** based on the **1.5×IQR rule** within each group.
+
+```{r}
+
+# Outliers for ROM Max
+outliers_rom_max <- data %>%
+  group_by(Arm, `Load (kg)`) %>%
+  identify_outliers(ROM_Max)
+
+# Outliers for ROM Min
+outliers_rom_min <- data %>%
+  group_by(Arm, `Load (kg)`) %>%
+  identify_outliers(ROM_Min)
+
+# Print them
+cat("Outliers ROM Max:\n")
+print(outliers_rom_max %>% filter(is.outlier == TRUE))
+
+cat("\nOutliers ROM Min:\n")
+print(outliers_rom_min %>% filter(is.outlier == TRUE))
+
+
+# Plot ROM Max with outliers marked
+ggplot(data, aes(x = factor(`Load (kg)`), y = ROM_Max, fill = Arm)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(data = outliers_rom_max %>% filter(is.outlier == TRUE),
+             aes(x = factor(`Load (kg)`), y = ROM_Max, color = Arm),
+             shape = 17, size = 3) +
+  facet_wrap(~Arm) +
+  labs(title = "Outliers in ROM Max",
+       x = "Load (kg)", y = "ROM Max (degrees)") +
+  theme_minimal()
+
+# Plot ROM Min with outliers marked
+ggplot(data, aes(x = factor(`Load (kg)`), y = ROM_Min, fill = Arm)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_point(data = outliers_rom_min %>% filter(is.outlier == TRUE),
+             aes(x = factor(`Load (kg)`), y = ROM_Min, color = Arm),
+             shape = 17, size = 3) +
+  facet_wrap(~Arm) +
+  labs(title = "Outliers in ROM Min",
+       x = "Load (kg)", y = "ROM Min (degrees)") +
+  theme_minimal()
+
+```
+
+Since no outliers appear lets check normality with the whole measures.
+
+### Checking normality for ROM_max and ROM_Min at each load and arm.
+
+To properly assess the distribution of ROM values, normality was tested separately for each combination of load (0 kg, 1 kg, 2 kg) and arm (dominant and non-dominant). This approach ensures that repeated measures within subjects are respected and avoids violating the independence assumption. The Shapiro-Wilk test was used to evaluate whether the data in each condition followed a normal distribution, guiding the choice between parametric and non-parametric statistical tests
+
+```{r}
+loads <- c(0, 1, 2)
+
+interpret_normality <- function(test_result) {
+  if (test_result$p.value > 0.05) {
+    return("Data is normally distributed.")
+  } else {
+    return("Data is NOT normally distributed.")
+  }
+}
+
+
+for (load_value in loads) {
+  
+  cat("\n--- Load:", load_value, "kg ---\n")
+  
+  data_load <- data %>% filter(`Load (kg)` == load_value)
+  
+  # DOM arm
+  rom_max_dom <- data_load %>% filter(Arm == "DOM") %>% pull(ROM_Max)
+  rom_min_dom <- data_load %>% filter(Arm == "DOM") %>% pull(ROM_Min)
+  
+  # NDOM arm
+  rom_max_nondom <- data_load %>% filter(Arm == "NDOM") %>% pull(ROM_Max)
+  rom_min_nondom <- data_load %>% filter(Arm == "NDOM") %>% pull(ROM_Min)
+  
+  # Perform Shapiro tests
+  shapiro_rom_max_dom <- shapiro.test(rom_max_dom)
+  shapiro_rom_max_nondom <- shapiro.test(rom_max_nondom)
+  shapiro_rom_min_dom <- shapiro.test(rom_min_dom)
+  shapiro_rom_min_nondom <- shapiro.test(rom_min_nondom)
+  
+  # Print interpretations
+  cat("DOM ROM_Max:", interpret_normality(shapiro_rom_max_dom), "\n")
+  cat("NDOM ROM_Max:", interpret_normality(shapiro_rom_max_nondom), "\n")
+  cat("DOM ROM_Min:", interpret_normality(shapiro_rom_min_dom), "\n")
+  cat("NDOM ROM_Min:", interpret_normality(shapiro_rom_min_nondom), "\n")
+}
+```
+
+## Analyzing significant differences in DOM vs NDOM for each load (checking normality between comparisons first)
+
+```{r}
+
+# Initialization
+loads <- c(0, 1, 2)
+variables <- c("ROM_Max", "ROM_Min")
+
+results_table <- data.frame(
+  Load_kg = numeric(),
+  Variable = character(),
+  Test = character(),
+  p_value = numeric(),
+  Significant = character(),
+  stringsAsFactors = FALSE
+)
+
+plots_list <- list()
+
+# Interpretation function
+get_test_result <- function(var_dom, var_nondom, paired = TRUE) {
+  norm_dom <- shapiro.test(var_dom)$p.value > 0.05
+  norm_nondom <- shapiro.test(var_nondom)$p.value > 0.05
+  
+  if (norm_dom & norm_nondom) {
+    test <- t.test(var_dom, var_nondom, paired = paired)
+    method <- "Paired t-test"
+  } else {
+    test <- wilcox.test(var_dom, var_nondom, paired = paired)
+    method <- "Wilcoxon test"
+  }
+  
+  return(list(p = test$p.value, method = method))
+}
+
+
+# Loop
+for (load_value in loads) {
+  data_load <- data %>% filter(`Load (kg)` == load_value)
+  
+  for (var in variables) {
+    dom_vals <- data_load %>% filter(Arm == "DOM") %>% pull(!!sym(var))
+    ndom_vals <- data_load %>% filter(Arm == "NDOM") %>% pull(!!sym(var))
+    
+    test_result <- get_test_result(dom_vals, ndom_vals)
+    p_val <- test_result$p
+    test_used <- test_result$method
+    significant <- ifelse(p_val < 0.05, "Yes", "No")
+    
+    # Save result
+    results_table <- rbind(results_table,
+                           data.frame(Load_kg = load_value,
+                                      Variable = var,
+                                      Test = test_used,
+                                      p_value = round(p_val, 4),
+                                      Significant = significant))
+    
+    # Plot if significant
+    if (p_val < 0.05) {
+      title_clean <- str_replace_all(var, "_", " ")  # "ROM_Max" → "ROM Max"
+      
+            
+      p <- ggplot(data_load, aes(x = Arm, y = .data[[var]], fill = Arm)) +
+        geom_bar(stat = "summary", fun = "mean", width = 0.5, color = "black") +
+        geom_errorbar(stat = "summary", fun.data = mean_se, width = 0.2) +
+        stat_compare_means(
+          comparisons = list(c("DOM", "NDOM")),
+          method = ifelse(test_used == "Paired t-test", "t.test", "wilcox.test"),
+          paired = TRUE,
+          label = "p.signif"
+        ) +
+        labs(title = paste(title_clean, "at", load_value, "kg"),
+             x = "Arm", y = "Degrees") +
+        theme_minimal()
+      
+      plots_list[[paste0(var, "_", load_value, "kg")]] <- p
+    }
+  }
+}
+results_table
+# Show plots
+rom_max_plots <- plots_list[grepl("ROM_Max", names(plots_list))]
+rom_min_plots <- plots_list[grepl("ROM_Min", names(plots_list))]
+
+if (length(rom_max_plots) > 0) {
+  wrap_plots(rom_max_plots, ncol = 2, guides = "collect") +
+    plot_annotation(title = "Significant ROM_Max Comparisons (DOM vs NDOM)") &
+    theme(legend.position = "right",
+          axis.title.y = element_text(size = 12),
+          axis.title.x = element_blank()) &
+    labs(y = "Degrees")
+}
+
+if (length(rom_min_plots) > 0) {
+  wrap_plots(rom_min_plots, ncol = 2, guides = "collect") +
+    plot_annotation(title = "Significant ROM_Min Comparisons (DOM vs NDOM)") &
+    theme(legend.position = "right",
+          axis.title.y = element_text(size = 12),
+          axis.title.x = element_blank()) &
+    labs(y = "Degrees")
+}
+
+```
+
+## Analyzing significant differences in NO LOAD vs LOADS ( 1KG, 2KG) at each arm
+
+Analyzing 0kg vs 1kg and 0kg vs 2kg at each arm for ROM max and ROM min. This is useful to see if loads alter the motor behavior.
+
+```{r}
+# Table to store results
+load_effect_table <- data.frame(
+  Arm = character(),
+  Variable = character(),
+  Comparison = character(),
+  Test = character(),
+  p_value = numeric(),
+  Significant = character(),
+  stringsAsFactors = FALSE
+)
+
+# Function to run comparison with normality check
+compare_load <- function(data, arm, variable) {
+  data_arm <- data %>% filter(Arm == arm)
+  
+  for (kg in c(1, 2)) {
+    group_0 <- data_arm %>% filter(`Load (kg)` == 0) %>% pull(!!sym(variable))
+    group_kg <- data_arm %>% filter(`Load (kg)` == kg) %>% pull(!!sym(variable))
+    
+    norm_0 <- shapiro.test(group_0)$p.value > 0.05
+    norm_kg <- shapiro.test(group_kg)$p.value > 0.05
+    
+    if (norm_0 & norm_kg) {
+      test_result <- t.test(group_0, group_kg, paired = TRUE)
+      test_used <- "Paired t-test"
+    } else {
+      test_result <- wilcox.test(group_0, group_kg, paired = TRUE)
+      test_used <- "Wilcoxon test"
+    }
+    
+    p_val <- round(test_result$p.value, 4)
+    sig <- ifelse(p_val < 0.05, "Yes", "No")
+    
+    load_effect_table <<- rbind(load_effect_table,
+      data.frame(
+        Arm = arm,
+        Variable = variable,
+        Comparison = paste("0 vs", kg, "kg"),
+        Test = test_used,
+        p_value = p_val,
+        Significant = sig
+      )
+    )
+  }
+}
+
+# Run comparisons
+for (arm in c("DOM", "NDOM")) {
+  compare_load(data, arm, "ROM_Max")
+  compare_load(data, arm, "ROM_Min")
+}
+
+load_effect_table
+
+```
+
+# 2. SPEED
+
+### Descriptive analysis ( not used but interesing to see)
+
+```{r}
+
+# Convert data to long format
+speed_long <- data %>%
+  select(Subject, Arm, `Load (kg)`, Speed_Max, Speed_Min) %>%
+  pivot_longer(cols = c(Speed_Max, Speed_Min), names_to = "Speed_Type", values_to = "Speed_Value") %>%
+  mutate(Speed_Type = dplyr::recode(Speed_Type, Speed_Max = "SPEED Max", Speed_Min = "SPEED Min"))
+
+# Plot 
+ggplot(speed_long, aes(x = factor(`Load (kg)`), y = Speed_Value, color = Arm, group = interaction(Subject, Arm))) +
+  geom_point(alpha = 0.4, position = position_jitter(width = 0.1)) +
+  stat_summary(fun = mean, geom = "line", aes(group = Arm), linewidth = 1.2) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.2, aes(group = Arm), position = position_dodge(width = 0.2)) +
+  facet_wrap(~Speed_Type) +
+  labs(
+       x = "Load (kg)",
+       y = "Deg/s",
+       color = "Arm") +
+  theme_minimal()+
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    strip.text = element_text(size = 14, face = "bold"),
+    legend.title = element_text(size = 13),
+    legend.text = element_text(size = 12)
+  )
+
+```
+
+# 3. COACTIVATION COEFFICIENTS
+
+## Checking mean values for each CC at each load and plotting across loads.
+
+Computing the mean values of the coactivation coefficients (CC) and their respective standard deviations (SD), previously extracted for each movement phase (acceleration and deceleration in both flexion and extension).
+
+```{r}
+cc_summary <- data %>%
+  group_by(`Arm`, `Load (kg)`) %>%
+  summarise(
+    CCaccFlex_mean     = mean(CCaccFlex, na.rm = TRUE),
+    #CCaccFlex_SD_mean  = mean(CCaccFlex_SD, na.rm = TRUE),
+    
+    CCdeccFlex_mean    = mean(CCdeccFlex, na.rm = TRUE),
+    #CCdeccFlex_SD_mean = mean(CCdeccFlex_SD, na.rm = TRUE),
+    
+    CCaccExt_mean      = mean(CCaccExt, na.rm = TRUE),
+    #CCaccExt_SD_mean   = mean(CCaccExt_SD, na.rm = TRUE),
+    
+    CCdeccExt_mean     = mean(CCdeccExt, na.rm = TRUE),
+    #CCdeccExt_SD_mean  = mean(CCdeccExt_SD, na.rm = TRUE),
+    
+    .groups = "drop"
+  )
+
+print(cc_summary)
+
+# Plot for each CC from the full data
+cc_vars <- c("CCaccFlex", "CCdeccFlex", "CCaccExt", "CCdeccExt")
+
+for (cc in cc_vars) {
+  p <- ggplot(data, aes(x = factor(`Load (kg)`), y = .data[[cc]], fill = Arm)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+    geom_jitter(width = 0.2, alpha = 0.3) +
+    facet_wrap(~Arm) +
+    labs(
+      title = paste("Distribution of", cc, "by Arm and Load"),
+      x = "Load (kg)",
+      y = paste(cc, "(%)")
+    ) +
+    theme_minimal()
+  
+  print(p)
+}
+```
+
+## Checking for outliers
+
+```{r}
+# Detect outliers per CC
+outliers_ccaccflex <- data %>%
+  group_by(Arm, `Load (kg)`) %>%
+  identify_outliers(CCaccFlex) %>%
+  filter(is.outlier == TRUE) %>%
+  mutate(variable = "CCaccFlex")
+
+outliers_ccdeccflex <- data %>%
+  group_by(Arm, `Load (kg)`) %>%
+  identify_outliers(CCdeccFlex) %>%
+  filter(is.outlier == TRUE) %>%
+  mutate(variable = "CCdeccFlex")
+
+outliers_ccaccext <- data %>%
+  group_by(Arm, `Load (kg)`) %>%
+  identify_outliers(CCaccExt) %>%
+  filter(is.outlier == TRUE) %>%
+  mutate(variable = "CCaccExt")
+
+outliers_ccdeccext <- data %>%
+  group_by(Arm, `Load (kg)`) %>%
+  identify_outliers(CCdeccExt) %>%
+  filter(is.outlier == TRUE) %>%
+  mutate(variable = "CCdeccExt")
+
+# Combine all into one table
+outliers_all <- bind_rows(
+  outliers_ccaccflex,
+  outliers_ccdeccflex,
+  outliers_ccaccext,
+  outliers_ccdeccext
+)
+
+# Sort outliers by Subject first (then optionally by variable)
+outliers_all_ordered <- outliers_all %>%
+  arrange(Subject, Gender, variable, `Load (kg)`, Arm)
+
+# Print the ordered table
+print(outliers_all_ordered %>%
+        select(Subject, Gender, variable, Arm, `Load (kg)`, Gender, Age, starts_with("CC")))
+
+# Create readable messages, also sorted by Subject
+outlier_messages <- outliers_all_ordered %>%
+  mutate(statement = paste(
+    "Subject", Subject, Gender,
+    "is an outlier in", variable,
+    "for the", Arm, "arm under",
+    `Load (kg)`, "kg load."
+  )) %>%
+  pull(statement)
+
+# Print the messages
+cat(outlier_messages, sep = "\n")
+
+```
+
+### Generating boxplots with flagged outliers
+
+```{r}
+# Function to generate plot for a CC variable
+plot_cc_outliers <- function(var_name, outlier_df, data) {
+  ggplot(data, aes(x = factor(`Load (kg)`), y = .data[[var_name]], fill = Arm)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_point(data = outlier_df %>% filter(variable == var_name),
+               aes(x = factor(`Load (kg)`), y = .data[[var_name]], fill = Arm),
+               shape = 21, size = 3, color = "black") +  
+    facet_wrap(~Arm) +
+    labs(title = paste("Outliers in", var_name),
+         x = "Load (kg)", y = paste("CC (%)")) +
+    theme_minimal() +
+    guides(fill = guide_legend(title = "Outliers"))  
+}
+
+# Create the four plots
+plot_cc_outliers("CCaccFlex", outliers_all_ordered, data)
+plot_cc_outliers("CCdeccFlex", outliers_all_ordered, data)
+plot_cc_outliers("CCaccExt", outliers_all_ordered, data)
+plot_cc_outliers("CCdeccExt", outliers_all_ordered, data)
+
+
+```
+
+## Outlier removal and balancing
+
+### Clean dataset
+
+```{r}
+
+#Dataset without outliers
+cc_long_clean <- cc_long %>%
+  anti_join(outliers_all %>%
+              select(Subject, Arm, `Load (kg)`, variable) %>%
+              rename(Variable = variable),
+            by = c("Subject", "Arm", "Load (kg)", "Variable"))
+
+
+cc_vars <- c("CCaccFlex", "CCdeccFlex", "CCaccExt", "CCdeccExt")
+
+
+for (selected_cc in cc_vars) {
+  
+  clean_summary_tbl <- cc_long_clean %>%
+    filter(Variable == selected_cc) %>%
+    group_by(Gender, Arm, `Load (kg)`) %>%
+    summarise(n = n(), .groups = "drop")
+  
+  summary_total <- clean_summary_tbl %>%
+    group_by(Arm, `Load (kg)`) %>%
+    summarise(n_total = sum(n), .groups = "drop")
+  
+
+  p_gender <- ggplot(clean_summary_tbl, aes(x = factor(`Load (kg)`), y = n, fill = Gender)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+    geom_text(aes(label = n), position = position_dodge(width = 0.9), vjust = -0.5, size = 4) +
+    facet_wrap(~Arm) +
+    scale_fill_manual(values = c("FEMALE" = "#FF69B4", "MALE" = "#1E90FF")) +
+    labs(x = "Load (kg)", y = "Sample Size") +
+    theme_minimal() +
+    ylim(0, max(clean_summary_tbl$n) + 2)
+ 
+  p_total <- ggplot(summary_total, aes(x = factor(`Load (kg)`), y = n_total, fill = Arm)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    geom_text(aes(label = n_total), vjust = -0.5, size = 4) +
+    facet_wrap(~Arm) +
+    labs(x = "Load (kg)", y = NULL) +
+    theme_minimal() +
+    theme(axis.title.y = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank()) +
+    ylim(0, max(summary_total$n_total) + 2)
+  
+  combined_plot <- (p_gender + p_total) +
+    plot_annotation(title = paste("Sample Composition for", selected_cc, "(Clean Dataset)"))
+  
+  print(combined_plot)
+}
+
+
+```
+
+### With gender balanced (not used, very small group sizes)
+
+\
+As several outliers were detected, and to ensure consistency of sample sizes across movement phases, arms, and gender—while avoiding skew from outlier-driven data loss—each coactivation coefficient (CC) was treated individually.\
+Outliers were removed using the 1.5×IQR rule, and datasets were subsequently balanced by downsampling all Gender × Arm × Load groups to the smallest available group size for that specific CC.
+
+```{r}
+
+cc_vars <- c("CCaccFlex", "CCdeccFlex", "CCaccExt", "CCdeccExt")
+balanced_cc_arm_load_gender <- list()
+
+# Loop through each CC
+for (cc in cc_vars) {
+  
+  # Step 1: Remove outlier rows for this CC
+  clean_cc <- data %>%
+    anti_join(
+      outliers_all %>%
+        filter(variable == cc) %>%
+        select(Subject, Arm, `Load (kg)`),
+      by = c("Subject", "Arm", "Load (kg)")
+    )
+  
+  # Step 2: Get minimum group size
+  min_n <- clean_cc %>%
+    group_by(Gender, Arm, `Load (kg)`) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    summarise(min_n = min(n)) %>%
+    pull(min_n)
+  
+  # Step 3: Downsample each group
+  set.seed(123)
+  cc_balanced_gender <- clean_cc %>%
+    group_by(Gender, Arm, `Load (kg)`) %>%
+    slice_sample(n = min_n) %>%
+    ungroup()
+  
+  # Step 4: Create summary with CC label
+  summary_tbl <- cc_balanced_gender %>%
+    group_by(Gender, Arm, `Load (kg)`) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    mutate(CC = cc)
+  
+  # Store both dataset and summary in list
+  balanced_cc_arm_load_gender[[cc]] <- list(
+    data = cc_balanced_gender,
+    summary = summary_tbl
+  )
+}
+
+# Print individual group size tables with titles for each CC
+for (cc in cc_vars) {
+  cat("\n\n### Balanced group sizes for", cc, ":\n\n")  # Title
+  print(balanced_cc_arm_load_gender[[cc]]$summary)
+}
+
+
+# Plotting group sizes for each CC with visible bar labels
+for (cc in cc_vars) {
+  summary_tbl <- balanced_cc_arm_load_gender[[cc]]$summary
+  
+  p <- ggplot(summary_tbl, aes(x = factor(`Load (kg)`), y = n, fill = Gender)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+    geom_text(
+      aes(label = n),
+      position = position_dodge(width = 0.9),
+      vjust = -0.5, size = 4
+    ) +
+    facet_wrap(~Arm) +
+    labs(
+      title = paste("Balanced Sample Sizes for", cc),
+      x = "Load (kg)",
+      y = "Sample Size per Group"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.margin = margin(t = 20, r = 10, b = 10, l = 10),  # more top space
+      plot.title = element_text(margin = margin(b = 10))
+    ) +
+    ylim(0, max(summary_tbl$n) + 2)  # give extra vertical room
+
+  print(p)
+}
+```
+
+### Without balancing gender ( USED APPROACH FOR LOAD COMPARISONS)
+
+As the sample sizes per group became very small when balancing by gender, gender was not considered during the balancing process. Instead, the data were balanced only by Arm and Load. This approach preserved more data while maintaining comparability across key conditions.\
+
+Moreover, the gender distribution within the balanced dataset remained proportionally consistent with the original dataset (approximately 70% female), even after outlier removal.
+
+```{r}
+# Balance by Arm × Load but keep Gender for plotting
+cc_vars <- c("CCaccFlex", "CCdeccFlex", "CCaccExt", "CCdeccExt")
+balanced_cc_by_armload <- list()
+
+for (cc in cc_vars) {
+  
+  # Step 1: Remove outliers
+  clean_cc <- data %>%
+    anti_join(
+      outliers_all %>%
+        filter(variable == cc) %>%
+        select(Subject, Arm, `Load (kg)`),
+      by = c("Subject", "Arm", "Load (kg)")
+    )
+  
+  # Step 2: Get min group size by Arm + Load (not Gender)
+  min_n <- clean_cc %>%
+    group_by(Arm, `Load (kg)`) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    summarise(min_n = min(n)) %>%
+    pull(min_n)
+  
+  # Step 3: Downsample
+  set.seed(123)
+  cc_balanced <- clean_cc %>%
+    group_by(Arm, `Load (kg)`) %>%
+    slice_sample(n = min_n) %>%
+    ungroup()
+  
+  # Step 4: Group again for plotting (WITH Gender)
+  summary_tbl <- cc_balanced %>%
+    group_by(Gender, Arm, `Load (kg)`) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    mutate(CC = cc)
+  
+  balanced_cc_by_armload[[cc]] <- list(
+    data = cc_balanced,
+    summary = summary_tbl
+  )
+}
+summary_tbl
+
+for (cc in cc_vars) {
+  summary_tbl <- balanced_cc_by_armload[[cc]]$summary
+
+  # Gender composition plot
+  p_gender <- ggplot(summary_tbl, aes(x = factor(`Load (kg)`), y = n, fill = Gender)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+    geom_text(aes(label = n), position = position_dodge(width = 0.9), vjust = -0.5, size = 4) +
+    facet_wrap(~Arm) +
+    scale_fill_manual(values = c("FEMALE" = "#FF69B4", "MALE" = "#1E90FF")) +
+    labs(
+      title = NULL,
+      x = "Load (kg)", y = "Sample Size"
+    ) +
+    theme_minimal() +
+    theme(
+      axis.title.y = element_text(size = 11),
+      axis.text.y = element_text(),
+      strip.text = element_text(face = "bold"),
+      plot.margin = margin(5, 5, 5, 5)
+    ) +
+    ylim(0, max(summary_tbl$n) + 2)
+
+  # Total sample size plot
+  summary_total <- summary_tbl %>%
+    group_by(Arm, `Load (kg)`) %>%
+    summarise(n_total = sum(n), .groups = "drop")
+
+  p_total <- ggplot(summary_total, aes(x = factor(`Load (kg)`), y = n_total, fill = Arm)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    geom_text(aes(label = n_total), vjust = -0.5, size = 4) +
+    facet_wrap(~Arm) +
+    labs(
+      title = NULL,
+      x = "Load (kg)", y = NULL  # no y-axis here
+    ) +
+    theme_minimal() +
+    theme(
+      axis.title.y = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      strip.text = element_text(face = "bold"),
+      plot.margin = margin(5, 5, 5, 5)
+    ) +
+    ylim(0, max(summary_total$n_total) + 2)
+
+  # Combine plots side-by-side with a shared title
+  combined_plot <- (p_gender + p_total) +
+    plot_annotation(title = paste("Sample Composition for", cc, "(Balanced Dataset)"))
+
+  print(combined_plot)
+}
+
+```
+
+## CLEANED VS BALANCED
+
+```{r}
+
+cc_vars <- c("CCaccFlex", "CCdeccFlex", "CCaccExt", "CCdeccExt")
+
+for (cc in cc_vars) {
+  
+  # === CLEAN DATA ===
+  clean_summary <- cc_long_clean %>%
+    filter(Variable == cc) %>%
+    group_by(Arm, `Load (kg)`) %>%
+    summarise(N = n(), .groups = "drop") %>%
+    mutate(Dataset = "Clean")
+  
+  # === BALANCED DATA ===
+  balanced_summary <- balanced_cc_by_armload[[cc]]$data %>%
+    group_by(Arm, `Load (kg)`) %>%
+    summarise(N = n(), .groups = "drop") %>%
+    mutate(Dataset = "Balanced")
+  
+  # === MERGE ===
+  clean_summary$Dataset <- factor("Clean", levels = c("Clean", "Balanced"))
+  balanced_summary$Dataset <- factor("Balanced", levels = c("Clean", "Balanced"))
+
+  combined <- bind_rows(clean_summary, balanced_summary)
+  
+  # === PLOT ===
+  p <- ggplot(combined, aes(x = factor(`Load (kg)`), y = N, fill = Arm)) +
+    geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+    geom_text(aes(label = N), position = position_dodge(width = 0.7), vjust = -0.5, size = 3.5) +
+    facet_grid(. ~ Dataset) +
+    labs(
+      title = paste("Sample Size Comparison for", cc),
+      x = "Load (kg)", y = "Sample Size"
+    ) +
+    ylim(0, max(combined$N) + 2) +
+    theme_minimal(base_size = 11) +
+    theme(strip.text = element_text(face = "bold"))
+  
+  print(p)
+}
+
+
+```
+
+## Sensitivity analysis
+
+```{r}
+# Dataset 
+library(stringr)
+library(purrr)
+
+cc_vars <- c("CCaccFlex", "CCdeccFlex", "CCaccExt", "CCdeccExt")
+
+cc_long <- data %>%
+  pivot_longer(cols = all_of(cc_vars),
+               names_to = "Variable",
+               values_to = "CC") %>%
+  mutate(
+    Phase = case_when(str_detect(Variable, "acc") ~ "Acceleration",
+                      str_detect(Variable, "decc") ~ "Deceleration"),
+    Direction = case_when(str_detect(Variable, "Flex") ~ "Flexion",
+                          str_detect(Variable, "Ext") ~ "Extension")
+  )
+
+#Dataset without outliers
+cc_long_clean <- cc_long %>%
+  anti_join(outliers_all %>%
+              select(Subject, Arm, `Load (kg)`, variable) %>%
+              rename(Variable = variable),
+            by = c("Subject", "Arm", "Load (kg)", "Variable"))
+
+
+
+# Phase, Direction y CC
+cc_long_balanced <- map_dfr(names(balanced_cc_by_armload), function(cc) {
+  balanced_cc_by_armload[[cc]]$data %>%
+    mutate(
+      Variable = cc,
+      CC = .data[[cc]],  # accede a la columna de la métrica
+      Phase = case_when(str_detect(cc, "acc") ~ "Acceleration",
+                        str_detect(cc, "decc") ~ "Deceleration"),
+      Direction = case_when(str_detect(cc, "Flex") ~ "Flexion",
+                            str_detect(cc, "Ext") ~ "Extension")
+    ) %>%
+    select(Subject, Arm, `Load (kg)`, Gender, Variable, Phase, Direction, CC)
+})
+
+
+# ANOVA full dataset
+anova_cc_full <- aov_ez(id = "Subject",
+                        dv = "CC",
+                        data = cc_long,
+                        within = c("Phase", "Direction", "Arm", "Load (kg)"),
+                        anova_table = list(correction = "GG", es = "pes"))
+
+# ANOVA clean dataset (no outliers)
+anova_cc_clean <- aov_ez(id = "Subject",
+                         dv = "CC",
+                         data = cc_long_clean,
+                         within = c("Phase", "Direction", "Arm", "Load (kg)"),
+                         anova_table = list(correction = "GG", es = "pes"))
+
+
+# ANOVA balanced dataset (no outliers + same n per group)
+anova_cc_balanced <- aov_ez(id = "Subject",
+                            dv = "CC",
+                            data = cc_long_balanced,
+                            within = c("Phase", "Direction", "Arm", "Load (kg)"),
+                            anova_table = list(correction = "GG", es = "pes"))
+
+
+cat("ANOVA dataset COMPLETE (with outliers):\n")
+print(anova_cc_full$anova_table)
+
+
+cat("\n\nANOVA dataset CLEAN (without outliers):\n")
+print(anova_cc_clean$anova_table)
+
+cat("\n\nANOVA en dataset BALANCED (without outliers + downsampling):\n")
+print(anova_cc_balanced$anova_table)
+
+```
+
+## Analyzing significant differences at each CC for DOM vs NDOM at each load (normality checked)
+
+### DOM vs NDOM with full dataset
+
+```{r}
+loads <- c(0, 1, 2)
+
+# Setup table for results
+cc_test_full <- data.frame(
+  Load_kg = numeric(),
+  Variable = character(),
+  Method = character(),
+  p_value = numeric(),
+  Significant = character(),
+  stringsAsFactors = FALSE
+)
+
+# Function for test selection
+run_test <- function(dom_vals, ndom_vals) {
+  if (shapiro.test(dom_vals)$p.value > 0.05 && shapiro.test(ndom_vals)$p.value > 0.05) {
+    res <- t.test(dom_vals, ndom_vals)
+    method <- "t-test"
+  } else {
+    res <- wilcox.test(dom_vals, ndom_vals)
+    method <- "Wilcoxon"
+  }
+  list(p = res$p.value, method = method)
+}
+
+# Run loop for each CC
+plots_full <- list()
+for (cc in cc_vars) {
+  df <- cc_long %>% filter(Variable == cc)
+
+  for (load in loads) {
+    df_load <- df %>% filter(`Load (kg)` == load)
+    dom <- df_load %>% filter(Arm == "DOM") %>% pull(CC)
+    ndom <- df_load %>% filter(Arm == "NDOM") %>% pull(CC)
+    
+    result <- run_test(dom, ndom)
+    
+    cc_test_full <- rbind(cc_test_full,
+      data.frame(Load_kg = load, Variable = cc, Method = result$method,
+                 p_value = result$p, Significant = ifelse(result$p < 0.05, "Yes", "No"))
+    )
+    
+    if (result$p < 0.05) {
+      p <- ggplot(df_load, aes(x = Arm, y = CC, fill = Arm)) +
+        geom_bar(stat = "summary", fun = mean, width = 0.6, color = "black") +
+        geom_errorbar(stat = "summary", fun.data = mean_se, width = 0.2) +
+        stat_compare_means(method = result$method, label = "p.signif", comparisons = list(c("DOM", "NDOM"))) +
+        labs(title = paste(cc, "at", load, "kg"), y = "Coactivation Coefficient", x = "Arm") +
+        theme_minimal()
+      plots_full[[paste(cc, load)]] <- p
+    } else {
+      message(paste("No significant difference found between DOM and NDOM for", cc, "at", load, "kg (p =", round(result$p, 4), ")"))
+    }
+  }
+}
+
+print(cc_test_full)
+
+```
+
+## Comparing Acceleration vs. Deceleration CCs for each MOVEMENT at each arm and load ( within arm analyis) to see CC behaviour
+
+#### Cleaned dataset ( normality checked) and checking mean values ( ACC, Decc)
+
+```{r}
+
+cc_acc_decc_results <- data.frame(
+  Direction = character(),
+  Arm = character(),
+  Load = numeric(),
+  Test = character(),
+  p_value = numeric(),
+  Significant = character(),
+  Mean_Acceleration = numeric(),
+  Mean_Deceleration = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Saving significative graphics of CC
+cc_plots <- list()
+
+# cc_long_clean
+for (direction in c("Flexion", "Extension")) {
+  for (arm in c("DOM", "NDOM")) {
+    for (load in c(0, 1, 2)) {
+      
+      
+      df_subset <- cc_long_clean %>%
+        filter(Direction == direction, Arm == arm, `Load (kg)` == load) %>%
+        group_by(Subject, Phase) %>%
+        summarise(CC_value = mean(CC, na.rm = TRUE), .groups = "drop") %>%
+        pivot_wider(names_from = Phase, values_from = CC_value) %>%
+        drop_na()
+      
+      if (nrow(df_subset) >= 3) {
+        diffs <- df_subset$Deceleration - df_subset$Acceleration
+        shapiro_result <- shapiro.test(diffs)
+        
+        if (shapiro_result$p.value > 0.05) {
+          test <- t.test(df_subset$Deceleration, df_subset$Acceleration, paired = TRUE)
+          method <- "t-test"
+        } else {
+          test <- wilcox.test(df_subset$Deceleration, df_subset$Acceleration, paired = TRUE)
+          method <- "Wilcoxon"
+        }
+        
+        p_val <- round(test$p.value, 4)
+        mean_acc <- round(mean(df_subset$Acceleration, na.rm = TRUE), 2)
+        mean_decc <- round(mean(df_subset$Deceleration, na.rm = TRUE), 2)
+        
+        cc_acc_decc_results <- rbind(cc_acc_decc_results,
+          data.frame(
+            Direction = direction,
+            Arm = arm,
+            Load = load,
+            Test = method,
+            p_value = p_val,
+            Significant = ifelse(p_val < 0.05, "Yes", "No"),
+            Mean_Acceleration = mean_acc,
+            Mean_Deceleration = mean_decc
+          )
+        )
+        
+        
+        df_plot <- df_subset %>%
+        pivot_longer(cols = c("Acceleration", "Deceleration"),
+               names_to = "Phase", values_to = "CC_value")
+
+        p <- ggpaired(df_plot, x = "Phase", y = "CC_value", id = "Subject",
+                      line.color = "gray", line.size = 0.4,
+                      fill = "Phase", palette = "jco") +
+          labs(
+            title = paste(direction, "|", arm, "|", load, "kg"),
+            subtitle = paste(method, "- p =", p_val),
+            y = "CC (%)"
+          ) +
+          theme_minimal()
+        
+        # Add stat_compare_means only if p < 0.05
+        if (p_val < 0.05) {
+          p <- p + stat_compare_means(paired = TRUE, method = method, label = "p.signif")
+        }
+        
+        plot_name <- paste(direction, arm, load, sep = "_")
+        cc_plots[[plot_name]] <- p
+        
+              }
+            }
+          }
+        }
+
+
+cc_acc_decc_results
+
+
+for (name in names(cc_plots)) {
+  cat("\n--- Showing plot:", name, "---\n")
+  print(cc_plots[[name]])
+}
+
+```
+
+### Coactivation in extension
+
+```{r}
+
+fill_scale <- scale_fill_manual(
+  name = "Phase",
+  values = c("Acceleration" = "#619CFF", "Deceleration" = "#FDCB6E"),
+  labels = c("Acc", "Decc")
+)
+
+# -------------------- DOM --------------------
+dom_ext_clean_plots <- list(
+  cc_plots[["Extension_DOM_0"]] +
+     labs(title = "DOM 0 kg", x = NULL) +
+    scale_x_discrete(labels = c("Acceleration" = "Acc", "Deceleration" = "Decc")) +
+    fill_scale +
+    ylim(5, 65) +
+    theme(legend.position = "none"),
+
+  cc_plots[["Extension_DOM_1"]] +
+    labs(title = "DOM 1 kg", x = NULL) +
+    scale_x_discrete(labels = c("Acceleration" = "Acc", "Deceleration" = "Decc")) +
+    fill_scale +
+    ylim(5, 65) +
+    theme(axis.title.y = element_blank(), legend.position = "none"),
+
+  cc_plots[["Extension_DOM_2"]] +
+    labs(title = "DOM 2 kg", x = NULL) +
+    scale_x_discrete(labels = c("Acceleration" = "Acc", "Deceleration" = "Decc")) +
+    fill_scale +
+    ylim(5, 65) +
+    theme(axis.title.y = element_blank())  # Aquí sí dejamos la leyenda
+)
+
+figure_dom_clean <- wrap_plots(dom_ext_clean_plots, ncol = 3, guides = "collect") +
+  plot_annotation(
+    title = "Coactivation during Extension | DOM | Acc vs Decc across loads",
+    theme = theme(plot.title = element_text(size = 14, hjust = 0.5))
+  ) &
+  theme(legend.position = "right") +
+  ylab("CC (%)")
+
+# -------------------- NDOM --------------------
+ndom_ext_clean_plots <- list(
+  cc_plots[["Extension_NDOM_0"]] +
+    labs(title = "NDOM 0 kg", x = NULL) +
+    scale_x_discrete(labels = c("Acceleration" = "Acc", "Deceleration" = "Decc")) +
+    fill_scale +
+    ylim(5, 65) +
+    theme(legend.position = "none"),
+
+  cc_plots[["Extension_NDOM_1"]] +
+    labs(title = "NDOM 1 kg", x = NULL) +
+    scale_x_discrete(labels = c("Acceleration" = "Acc", "Deceleration" = "Decc")) +
+    fill_scale +
+    ylim(5, 65) +
+    theme(axis.title.y = element_blank(), legend.position = "none"),
+
+  cc_plots[["Extension_NDOM_2"]] +
+    labs(title = "NDOM 2 kg", x = NULL) +
+    scale_x_discrete(labels = c("Acceleration" = "Acc", "Deceleration" = "Decc")) +
+    fill_scale +
+    ylim(5, 65) +
+    theme(axis.title.y = element_blank()) 
+)
+
+figure_ndom_clean <- wrap_plots(ndom_ext_clean_plots, ncol = 3, guides = "collect") +
+  plot_annotation(
+    title = "Coactivation during Extension | NDOM | Acc vs Decc across loads",
+    theme = theme(plot.title = element_text(size = 14, hjust = 0.5))
+  ) &
+  theme(legend.position = "right") +
+  ylab("CC (%)")
+
+
+print(figure_dom_clean)
+print(figure_ndom_clean)
+
+
+```
+
+### Coactivation in flexion
+
+```{r}
+# -------------------- DOM FLEXION --------------------
+dom_flex_clean_plots <- list(
+  cc_plots[["Flexion_DOM_0"]] +
+    labs(title = "DOM 0 kg", x = NULL) +
+    scale_x_discrete(labels = c("Acceleration" = "Acc", "Deceleration" = "Decc")) +
+    fill_scale +
+    ylim(5, 65) +
+    theme(legend.position = "none"),
+
+  cc_plots[["Flexion_DOM_1"]] +
+    labs(title = "DOM 1 kg", x = NULL) +
+    scale_x_discrete(labels = c("Acceleration" = "Acc", "Deceleration" = "Decc")) +
+    fill_scale +
+    ylim(5, 65) +
+    theme(axis.title.y = element_blank(), legend.position = "none"),
+
+  cc_plots[["Flexion_DOM_2"]] +
+    labs(title = "DOM 2 kg", x = NULL) +
+    scale_x_discrete(labels = c("Acceleration" = "Acc", "Deceleration" = "Decc")) +
+    fill_scale +
+    ylim(5, 65) +
+    theme(axis.title.y = element_blank())
+)
+
+figure_dom_flex <- wrap_plots(dom_flex_clean_plots, ncol = 3, guides = "collect") +
+  plot_annotation(
+    title = "Coactivation during Flexion | DOM | Acc vs Decc across loads",
+    theme = theme(plot.title = element_text(size = 14, hjust = 0.5))
+  ) &
+  theme(legend.position = "right") +
+  ylab("CC (%)")
+
+# -------------------- NDOM FLEXION --------------------
+ndom_flex_clean_plots <- list(
+  cc_plots[["Flexion_NDOM_0"]] +
+    labs(title = "NDOM 0 kg", x = NULL) +
+    scale_x_discrete(labels = c("Acceleration" = "Acc", "Deceleration" = "Decc")) +
+    fill_scale +
+    ylim(5, 65) +
+    theme(legend.position = "none"),
+
+  cc_plots[["Flexion_NDOM_1"]] +
+    labs(title = "NDOM 1 kg", x = NULL) +
+    scale_x_discrete(labels = c("Acceleration" = "Acc", "Deceleration" = "Decc")) +
+    fill_scale +
+    ylim(5, 65) +
+    theme(axis.title.y = element_blank(), legend.position = "none"),
+
+  cc_plots[["Flexion_NDOM_2"]] +
+    labs(title = "NDOM 2 kg", x = NULL) +
+    scale_x_discrete(labels = c("Acceleration" = "Acc", "Deceleration" = "Decc")) +
+    fill_scale +
+    ylim(5, 65) +
+    theme(axis.title.y = element_blank())
+)
+
+figure_ndom_flex <- wrap_plots(ndom_flex_clean_plots, ncol = 3, guides = "collect") +
+  plot_annotation(
+    title = "Coactivation during Flexion | NDOM | Acc vs Decc across loads",
+    theme = theme(plot.title = element_text(size = 14, hjust = 0.5))
+  ) &
+  theme(legend.position = "right") +
+  ylab("CC (%)")
+
+print(figure_dom_flex)
+print(figure_ndom_flex)
+
+```
+
+## Coactivation Differences Across Load Conditions by Phase, Direction, and Arm in BALANCED
+
+## Balanced Load comparisons
+
+```{r}
+
+cc_load_comparisons_balanced <- data.frame(
+  Direction = character(),
+  Arm = character(),
+  Phase = character(),
+  Comparison = character(),
+  Test = character(),
+  p_value = numeric(),
+  Significant = character(),
+  stringsAsFactors = FALSE
+)
+
+
+load_pairs <- list(c(0, 1), c(0, 2))
+
+for (direction in c("Flexion", "Extension")) {
+  for (arm in c("DOM", "NDOM")) {
+    for (phase in c("Acceleration", "Deceleration")) {
+      
+      for (pair in load_pairs) {
+        l1 <- pair[1]; l2 <- pair[2]
+        
+        df_pair <- cc_long_balanced %>%
+          filter(Direction == direction, Arm == arm, Phase == phase, `Load (kg)` %in% c(l1, l2)) %>%
+          drop_na()
+        
+        if (n_distinct(df_pair$`Load (kg)`) == 2) {
+          group1 <- df_pair %>% filter(`Load (kg)` == l1) %>% pull(CC)
+          group2 <- df_pair %>% filter(`Load (kg)` == l2) %>% pull(CC)
+          
+          norm1 <- shapiro.test(group1)$p.value > 0.05
+          norm2 <- shapiro.test(group2)$p.value > 0.05
+          
+          if (norm1 && norm2) {
+            test <- t.test(CC ~ factor(`Load (kg)`), data = df_pair)
+            method <- "t-test"
+          } else {
+            test <- wilcox.test(CC ~ factor(`Load (kg)`), data = df_pair)
+            method <- "Wilcoxon"
+          }
+          
+          p_val <- round(test$p.value, 4)
+          
+          cc_load_comparisons_balanced <- rbind(cc_load_comparisons_balanced, data.frame(
+            Direction = direction,
+            Arm = arm,
+            Phase = phase,
+            Comparison = paste0(l1, " vs ", l2, " kg"),
+            Test = method,
+            p_value = p_val,
+            Significant = ifelse(p_val < 0.05, "Yes", "No")
+          ))
+        }
+      }
+    }
+  }
+}
+
+print(cc_load_comparisons_balanced)
+
+```
+
+# 4. MUSCLE SYNERGIES
+
+### Checking mean values for each Synergy at each arm and load and plotting it
+
+```{r}
+
+synergy_summary <- data %>%
+  group_by(Arm, `Load (kg)`) %>%
+  summarise(
+    SynBicepsFlex_mean      = mean(SynBicepsFlex, na.rm = TRUE),
+    SynBicepsFlex_SD_mean   = mean(SynBicepsFlex_SD, na.rm = TRUE),
+    
+    SynBicepsExt_mean       = mean(SynBicepsExt, na.rm = TRUE),
+    SynBicepsExt_SD_mean    = mean(SynBicepsExt_SD, na.rm = TRUE),
+    
+    SynTricepsFlex_mean     = mean(SynTricepsFlex, na.rm = TRUE),
+    SynTricepsFlex_SD_mean  = mean(SynTricepsFlex_SD, na.rm = TRUE),
+    
+    SynTricepsExt_mean      = mean(SynTricepsExt, na.rm = TRUE),
+    SynTricepsExt_SD_mean   = mean(SynTricepsExt_SD, na.rm = TRUE),
+    
+    .groups = "drop"
+  )
+
+print(synergy_summary)
+
+
+
+synergy_stacked <- synergy_summary %>%
+  select(Arm, `Load (kg)`,
+         SynBicepsFlex_mean, SynBicepsExt_mean,
+         SynTricepsFlex_mean, SynTricepsExt_mean) %>%
+  pivot_longer(
+    cols = -c(Arm, `Load (kg)`),
+    names_to = c("Muscle", "Phase"),
+    names_pattern = "Syn(\\w+)(Flex|Ext)_mean",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    Phase = recode(Phase, "Flex" = "Flexion", "Ext" = "Extension"),
+    Muscle = factor(Muscle, levels = c("Biceps", "Triceps"))
+  )
+
+
+synergy_stacked <- synergy_stacked %>%
+  group_by(Arm, `Load (kg)`, Muscle) %>%
+  mutate(
+    label = paste0(round(Value), "%"),
+    pos = cumsum(Value) - 0.5 * Value
+  ) %>%
+  ungroup()
+
+ggplot(synergy_stacked, aes(x = factor(`Load (kg)`), y = Value, fill = Phase)) +
+  geom_bar(stat = "identity", position = "stack", width = 0.8) +
+  geom_text(aes(y = pos, label = label), color = "white", size = 4, fontface= "bold") +
+  facet_grid(Muscle ~ Arm, labeller = labeller(.default = label_value)) +
+  labs(
+    title = "Synergy Distribution: Flexion vs Extension",
+    x = "Load (kg)",
+    y = "Synergy Contribution (%)",
+    fill = "Phase"
+  ) +
+  scale_fill_manual(
+  values = c("Flexion" = "#009E73", "Extension" = "#D55E00"),
+  breaks = c("Flexion", "Extension"),  # orden interno
+  labels = c("Flex", "Ext"))+
+  theme_minimal(base_size = 12)+
+  theme(strip.text.y = element_text(face = "bold"))+
+  theme(strip.text.x = element_text(face = "bold"))
+
+
+```
+
+## Triceps synergy data to visualize inconsistency
+
+```{r}
+# Loop and print for each subject, arm, and load
+triceps_synergy <- data %>%
+  select(Subject, Arm, `Load (kg)`,
+         SynTricepsFlex, SynTricepsExt) %>%
+  arrange(Subject, Arm, `Load (kg)`)
+
+for (i in 1:nrow(triceps_synergy)) {
+  row <- triceps_synergy[i, ]
+  cat("Subject:", row$Subject, 
+      "| Arm:", row$Arm, 
+      "| Load:", row$`Load (kg)`, "kg\n",
+      "  Flex :", round(row$SynTricepsFlex, 2), "%\n",
+      "  Ext ** :", round(row$SynTricepsExt, 2), "%\n\n")
+}
+
+
+```
+
+## Checking for outliers
+
+```{r}
+# Detect outliers per synergy variable
+outliers_synbicepsflex <- data %>%
+  group_by(Arm, `Load (kg)`) %>%
+  identify_outliers(SynBicepsFlex) %>%
+  filter(is.outlier == TRUE) %>%
+  mutate(variable = "SynBicepsFlex")
+
+outliers_synbicepsext <- data %>%
+  group_by(Arm, `Load (kg)`) %>%
+  identify_outliers(SynBicepsExt) %>%
+  filter(is.outlier == TRUE) %>%
+  mutate(variable = "SynBicepsExt")
+
+outliers_syntricepsflex <- data %>%
+  group_by(Arm, `Load (kg)`) %>%
+  identify_outliers(SynTricepsFlex) %>%
+  filter(is.outlier == TRUE) %>%
+  mutate(variable = "SynTricepsFlex")
+
+outliers_syntricepsext <- data %>%
+  group_by(Arm, `Load (kg)`) %>%
+  identify_outliers(SynTricepsExt) %>%
+  filter(is.outlier == TRUE) %>%
+  mutate(variable = "SynTricepsExt")
+
+# Combine all into one table
+outliers_synergy_all <- bind_rows(
+  outliers_synbicepsflex,
+  outliers_synbicepsext,
+  outliers_syntricepsflex,
+  outliers_syntricepsext
+)
+
+# Sort outliers by Subject, Gender, variable, Load, Arm
+outliers_synergy_all_ordered <- outliers_synergy_all %>%
+  arrange(Subject, Gender, variable, `Load (kg)`, Arm)
+
+# Print summary table
+print(outliers_synergy_all_ordered %>%
+        select(Subject, Gender, variable, Arm, `Load (kg)`, Age, starts_with("Syn")))
+
+# Create readable messages
+outlier_synergy_messages <- outliers_synergy_all_ordered %>%
+  mutate(statement = paste(
+    "Subject", Subject, Gender,
+    "is an outlier in", variable,
+    "for the", Arm, "arm under",
+    `Load (kg)`, "kg load."
+  )) %>%
+  pull(statement)
+
+# Print the messages
+cat(outlier_synergy_messages, sep = "\n")
+```
+
+### Plotting outliers
+
+```{r}
+# Function to generate plot for a synergy variable
+plot_synergy_outliers <- function(var_name, outlier_df, data) {
+  ggplot(data, aes(x = factor(`Load (kg)`), y = .data[[var_name]], fill = Arm)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_point(data = outlier_df %>% filter(variable == var_name),
+               aes(x = factor(`Load (kg)`), y = .data[[var_name]], fill = Arm),
+               shape = 21, size = 3, color = "black") +
+    facet_wrap(~Arm) +
+    labs(title = paste("Outliers in", var_name),
+         x = "Load (kg)", y = paste(var_name, "(%)")) +
+    theme_minimal() +
+    guides(fill = guide_legend(title = "Arm"))
+}
+
+plot_synergy_outliers("SynBicepsFlex", outliers_synergy_all_ordered, data)
+plot_synergy_outliers("SynBicepsExt",  outliers_synergy_all_ordered, data)
+plot_synergy_outliers("SynTricepsFlex", outliers_synergy_all_ordered, data)
+plot_synergy_outliers("SynTricepsExt",  outliers_synergy_all_ordered, data)
+
+```
+
+## Sensitivity analysis ( with and without outliers)
+
+```{r}
+
+# Step 1: Flag outliers already done 
+# - data: full synergy dataset
+# - outliers_synergy_all_ordered: flagged synergy outliers
+
+# Step 2: Remove synergy outliers
+data_synergy_clean <- anti_join(data, outliers_synergy_all_ordered,
+                                by = c("Subject", "Arm", "Load (kg)"))
+
+# Step 3: Reshape data to long format for ANOVA
+data_synergy_long <- data %>%
+  pivot_longer(cols = starts_with("Syn"),
+               names_to = "Variable",
+               values_to = "Synergy") %>%
+  mutate(Muscle = case_when(
+    grepl("Biceps", Variable) ~ "Biceps",
+    grepl("Triceps", Variable) ~ "Triceps"
+  ),
+  Movement = case_when(
+    grepl("Flex", Variable) ~ "Flexion",
+    grepl("Ext", Variable) ~ "Extension"
+  ))
+
+data_synergy_clean_long <- data_synergy_clean %>%
+  pivot_longer(cols = starts_with("Syn"),
+               names_to = "Variable",
+               values_to = "Synergy") %>%
+  mutate(Muscle = case_when(
+    grepl("Biceps", Variable) ~ "Biceps",
+    grepl("Triceps", Variable) ~ "Triceps"
+  ),
+  Movement = case_when(
+    grepl("Flex", Variable) ~ "Flexion",
+    grepl("Ext", Variable) ~ "Extension"
+  ))
+
+# Step 4: Run repeated-measures ANOVA (full data)
+anova_full <- aov_ez(id = "Subject",
+                     dv = "Synergy",
+                     data = data_synergy_long,
+                     within = c("Muscle", "Movement", "Arm", "Load (kg)"),
+                     anova_table = list(correction = "GG", es = "pes"))
+
+# Step 5: Run repeated-measures ANOVA (cleaned data)
+anova_clean <- aov_ez(id = "Subject",
+                      dv = "Synergy",
+                      data = data_synergy_clean_long,
+                      within = c("Muscle", "Movement", "Arm", "Load (kg)"),
+                      anova_table = list(correction = "GG", es = "pes"))
+
+# Step 6: Print both ANOVA tables side by side
+cat("FULL DATASET ANOVA RESULTS:\n")
+print(anova_full$anova_table)
+
+cat("\n\nCLEANED DATASET (No Outliers) ANOVA RESULTS:\n")
+print(anova_clean$anova_table)
+
+```
+
+## Testing Movement differences for Biceps/Triceps per Arm and Load to see if they act as they should. ( Biceps agonist in flexion, triceps agonist in extension)
+
+```{r}
+
+# Settings
+loads <- c(0, 1, 2)
+muscles <- c("Biceps", "Triceps")
+arms <- c("DOM", "NDOM")
+
+# Table to collect test results
+synergy_flex_ext_results <- data.frame(
+  Muscle = character(),
+  Arm = character(),
+  Load = numeric(),
+  Test = character(),
+  p_value = numeric(),
+  Significant = character(),
+  stringsAsFactors = FALSE
+)
+
+# List to collect significant plots
+synergy_plots <- list()
+
+# Custom color palette for movements
+movement_colors <- c("Flexion" = "#1b9e77", "Extension" = "#d95f02") 
+
+# Loop through all combinations
+for (muscle in muscles) {
+  for (load in loads) {
+    for (arm in arms) {
+      
+      flex_var <- paste0("Syn", muscle, "Flex")
+      ext_var  <- paste0("Syn", muscle, "Ext")
+      
+      df_sub <- data %>%
+        filter(`Load (kg)` == load, Arm == arm) %>%
+        select(Subject, Arm, `Load (kg)`, !!flex_var, !!ext_var) %>%
+        rename(Flexion = !!flex_var, Extension = !!ext_var) %>%
+        pivot_longer(cols = c("Flexion", "Extension"),
+                     names_to = "Movement", values_to = "Synergy") %>%
+        drop_na()
+      
+      if (n_distinct(df_sub$Subject) >= 3) {
+        
+        df_wide <- df_sub %>%
+          pivot_wider(names_from = Movement, values_from = Synergy) %>%
+          drop_na()
+        
+        diffs <- df_wide$Flexion - df_wide$Extension
+        normality <- shapiro.test(diffs)
+        
+        if (normality$p.value > 0.05) {
+          test <- t.test(df_wide$Flexion, df_wide$Extension, paired = TRUE)
+          method <- "Paired t-test"
+        } else {
+          test <- wilcox.test(df_wide$Flexion, df_wide$Extension, paired = TRUE)
+          method <- "Wilcoxon"
+        }
+        
+        p_val <- round(test$p.value, 4)
+        
+        synergy_flex_ext_results <- rbind(synergy_flex_ext_results,
+          data.frame(
+            Muscle = muscle,
+            Arm = arm,
+            Load = load,
+            Test = method,
+            p_value = p_val,
+            Significant = ifelse(p_val < 0.05, "Yes", "No")
+          )
+        )
+        
+        # Create plot only if significant
+        if (p_val < 0.05) {
+          
+          df_long <- df_wide %>%
+            pivot_longer(cols = c(Flexion, Extension),
+                         names_to = "Movement", values_to = "Synergy")
+          
+          p <- ggplot(df_long, aes(x = Movement, y = Synergy, fill = Movement)) +
+            geom_boxplot(width = 0.5, alpha = 0.7, outlier.shape = NA, color = "black") +
+            geom_point(position = position_jitter(width = 0.08), shape = 21, size = 2, stroke = 0.3, color = "black") +
+            geom_line(aes(group = Subject), color = "gray60", linewidth = 0.4) +
+            scale_fill_manual(values = movement_colors) +
+            stat_compare_means(paired = TRUE,
+                               method = ifelse(method == "Paired t-test", "t.test", "wilcox.test"),
+                               label = "p.signif") +
+            labs(
+              title = paste(muscle, "-", arm, "|", load, "kg"),
+              subtitle = paste( method, "- p =", p_val),
+              y = "Synergy (%)",
+              x = NULL
+            ) +
+            theme_minimal(base_size = 14) +
+            theme(
+              axis.text = element_text(size = 12),
+              axis.title = element_text(size = 14),
+              plot.title = element_text(face = "bold", size = 15),
+              plot.subtitle = element_text(size = 11),
+              legend.position = "none"
+            )
+          
+          synergy_plots[[paste(muscle, arm, load, sep = "_")]] <- p
+        }
+      }
+    }
+  }
+}
+
+# Show test results table
+print(synergy_flex_ext_results)
+
+# Display plots grouped by muscle
+for (muscle in muscles) {
+  message("\nShowing significant plots for:", muscle)
+  plots_to_show <- synergy_plots[grepl(muscle, names(synergy_plots))]
+  for (name in names(plots_to_show)) {
+    cat("\n---", name, "---\n")
+    print(plots_to_show[[name]])
+  }
+}
+
+```
+
+### Outliers removed test (checking point)
+
+```{r}
+
+
+# Remove outliers
+data_clean <- anti_join(data, outliers_synergy_all_ordered,
+                        by = c("Subject", "Arm", "Load (kg)"))
+
+# Settings
+loads <- c(0, 1, 2)
+muscles <- c("Biceps", "Triceps")
+arms <- c("DOM", "NDOM")
+
+# Table to collect test results
+synergy_flex_ext_results_clean <- data.frame(
+  Muscle = character(),
+  Arm = character(),
+  Load = numeric(),
+  Test = character(),
+  p_value = numeric(),
+  Significant = character(),
+  stringsAsFactors = FALSE
+)
+
+# List to collect significant plots
+synergy_plots_clean <- list()
+
+# Custom color palette for movements
+movement_colors <- c("Flexion" = "#1b9e77", "Extension" = "#d95f02")
+
+# Loop through all combinations
+for (muscle in muscles) {
+  for (load in loads) {
+    for (arm in arms) {
+      
+      flex_var <- paste0("Syn", muscle, "Flex")
+      ext_var  <- paste0("Syn", muscle, "Ext")
+      
+      df_sub <- data_clean %>%
+        filter(`Load (kg)` == load, Arm == arm) %>%
+        select(Subject, Arm, `Load (kg)`, !!flex_var, !!ext_var) %>%
+        rename(Flexion = !!flex_var, Extension = !!ext_var) %>%
+        pivot_longer(cols = c("Flexion", "Extension"),
+                     names_to = "Movement", values_to = "Synergy") %>%
+        drop_na()
+      
+      if (n_distinct(df_sub$Subject) >= 3) {
+        
+        df_wide <- df_sub %>%
+          pivot_wider(names_from = Movement, values_from = Synergy) %>%
+          drop_na()
+        
+        diffs <- df_wide$Flexion - df_wide$Extension
+        normality <- shapiro.test(diffs)
+        
+        if (normality$p.value > 0.05) {
+          test <- t.test(df_wide$Flexion, df_wide$Extension, paired = TRUE)
+          method <- "Paired t-test"
+        } else {
+          test <- wilcox.test(df_wide$Flexion, df_wide$Extension, paired = TRUE)
+          method <- "Wilcoxon"
+        }
+        
+        p_val <- round(test$p.value, 4)
+        
+        synergy_flex_ext_results_clean <- rbind(synergy_flex_ext_results_clean,
+          data.frame(
+            Muscle = muscle,
+            Arm = arm,
+            Load = load,
+            Test = method,
+            p_value = p_val,
+            Significant = ifelse(p_val < 0.05, "Yes", "No")
+          )
+        )
+        
+        # Create plot only if significant
+        if (p_val < 0.05) {
+          
+          df_long <- df_wide %>%
+            pivot_longer(cols = c(Flexion, Extension),
+                         names_to = "Movement", values_to = "Synergy")
+          
+          p <- ggplot(df_long, aes(x = Movement, y = Synergy, fill = Movement)) +
+            geom_boxplot(width = 0.5, alpha = 0.7, outlier.shape = NA, color = "black") +
+            geom_point(position = position_jitter(width = 0.08), shape = 21, size = 2, stroke = 0.3, color = "black") +
+            geom_line(aes(group = Subject), color = "gray60", linewidth = 0.4) +
+            scale_fill_manual(values = movement_colors) +
+            stat_compare_means(paired = TRUE,
+                               method = ifelse(method == "Paired t-test", "t.test", "wilcox.test"),
+                               label = "p.signif") +
+            labs(
+              title = paste(muscle, "-", arm, "|", load, "kg (No Outliers)"),
+              subtitle = paste("Movement comparison:", method, "- p =", p_val),
+              y = "Synergy (%)",
+              x = NULL
+            ) +
+            theme_minimal(base_size = 14) +
+            theme(
+              axis.text = element_text(size = 12),
+              axis.title = element_text(size = 14),
+              plot.title = element_text(face = "bold", size = 15),
+              plot.subtitle = element_text(size = 11),
+              legend.position = "none"
+            )
+          
+          synergy_plots_clean[[paste(muscle, arm, load, sep = "_")]] <- p
+        }
+      }
+    }
+  }
+}
+
+# Show test results
+print(synergy_flex_ext_results_clean)
+
+# Display plots
+for (muscle in muscles) {
+  message("\nShowing significant plots for:", muscle)
+  plots_to_show <- synergy_plots_clean[grepl(muscle, names(synergy_plots_clean))]
+  for (name in names(plots_to_show)) {
+    cat("\n---", name, "---\n")
+    print(plots_to_show[[name]])
+  }
+}
+
+
+```
+
+### Plotting results for each movement and arm
+
+```{r}
+
+synergy_split_plots <- list()
+
+
+df_all <- df_all %>%
+  mutate(
+    Facet_Label = paste0(
+      Arm, " ", Load, " kg\n",
+      ifelse(Test == "Paired t-test", "t-test", "wilcox"), " - p = ", p_value
+    )
+  )
+
+# 4 figures (muscle-arm)
+for (muscle in c("Biceps", "Triceps")) {
+  for (arm in c("DOM", "NDOM")) {
+    
+    df_subset <- df_all %>%
+      filter(Muscle == muscle, Arm == arm)
+   
+    df_subset$Movement <- recode(df_subset$Movement,
+                              "Flexion" = "Flex",
+                              "Extension" = "Ext")
+
+    df_subset$Movement <- factor(df_subset$Movement, levels = c("Flex", "Ext"))
+
+    movement_colors <- c("Flex" = "#1b9e77", "Ext" = "#d95f02")
+
+
+    
+    p <- ggplot(df_subset, aes(x = Movement, y = Synergy, fill = Movement)) +
+      geom_boxplot(width = 0.5, alpha = 0.7, outlier.shape = NA, color = "black") +
+      geom_point(position = position_jitter(width = 0.08), shape = 21, size = 2, stroke = 0.3, color = "black") +
+      geom_line(aes(group = Subject), color = "gray60", linewidth = 0.3) +
+      scale_fill_manual(values = movement_colors) +
+      facet_wrap(~ Facet_Label, nrow = 1) +
+      labs(
+        title = paste(muscle, "-", arm),
+        y = "Synergy (%)", x = NULL
+      ) +
+      theme_minimal(base_size = 13) +
+      theme(
+        axis.text = element_text(size = 10),
+        strip.text.x = element_text(size = 11, face = "bold", hjust = 0),
+        plot.title = element_text(size = 11),
+        legend.position = "right"
+)
+
+    
+    synergy_split_plots[[paste(muscle, arm, sep = "_")]] <- p
+  }
+}
+
+for (name in names(synergy_split_plots)) {
+  cat("\n\n---", name, "---\n")
+  print(synergy_split_plots[[name]])
+}
+
+
+  
+```
+
+## Does the **dominant arm** show **more appropriate muscle activation** (i.e., higher synergy in the expected movement direction) **than the non-dominant arm**?
+
+```{r}
+# 1. Compute synergy balance in the cleaned dataset
+df_balance_clean <- data_synergy_clean %>%
+  mutate(
+    Balance_Biceps = SynBicepsFlex - SynBicepsExt,
+    Balance_Triceps = SynTricepsExt - SynTricepsFlex
+  ) %>%
+  select(Subject, Arm, `Load (kg)`, Balance_Biceps, Balance_Triceps)
+
+# 2. Pivot to wide format for paired testing
+df_wide_clean <- df_balance_clean %>%
+  pivot_wider(
+    names_from = Arm,
+    values_from = c(Balance_Biceps, Balance_Triceps)
+  )
+
+compare_balance <- function(df, muscle) {
+  
+  muscle_label <- ifelse(muscle == "Biceps", "Biceps (Flex - Ext)", "Triceps (Ext - Flex)")
+  load_label <- unique(df$`Load (kg)`)
+  cat("-------------------------------------------------\n")
+  cat("Analyzing Muscle:", muscle_label, "| Load:", load_label, "kg\n")
+  cat("-------------------------------------------------\n")
+  
+  
+  dom <- df[[paste0("Balance_", muscle, "_DOM")]]
+  ndom <- df[[paste0("Balance_", muscle, "_NDOM")]]
+
+  # Normality check
+  shapiro_dom <- shapiro.test(dom)
+  shapiro_ndom <- shapiro.test(ndom)
+
+  if (shapiro_dom$p.value > 0.05 && shapiro_ndom$p.value > 0.05) {
+    test <- t.test(dom, ndom, paired = TRUE)
+    cat("Paired t-test:\n")
+  } else {
+    test <- wilcox.test(dom, ndom, paired = TRUE)
+    cat("Wilcoxon signed-rank test:\n")
+  }
+  print(test)
+  cat("\n")
+}
+
+for (load_val in unique(df_wide_clean$`Load (kg)`)) {
+  df_sub <- df_wide_clean %>% filter(`Load (kg)` == load_val)
+  compare_balance(df_sub, "Biceps")
+  compare_balance(df_sub, "Triceps")
+}
+```
+
+## Checking if increasing load affect synergy in the arm (DOM or NDOM) for a given muscle and movement ( ex: synergy in biceps flexion)
+
+```{r}
+
+synergy_vars <- c("SynBicepsFlex", "SynBicepsExt",
+                  "SynTricepsFlex", "SynTricepsExt")
+
+# Initialize results table
+synergy_load_results <- data.frame()
+
+# Loop through each synergy variable and arm
+for (var in synergy_vars) {
+  for (arm in c("DOM", "NDOM")) {
+    
+    df_sub <- data %>%
+      filter(Arm == arm, `Load (kg)` %in% c(0, 1, 2)) %>%
+      select(Subject, `Load (kg)`, Arm, all_of(var)) %>%
+      tidyr::pivot_wider(names_from = `Load (kg)`, values_from = all_of(var)) %>%
+      drop_na()
+    
+    if (nrow(df_sub) >= 3) {
+      # Rename columns to make testing easier
+      names(df_sub)[names(df_sub) == "0"] <- "L0"
+      names(df_sub)[names(df_sub) == "1"] <- "L1"
+      names(df_sub)[names(df_sub) == "2"] <- "L2"
+      
+      # 0 vs 1 test
+      p1 <- if (shapiro.test(df_sub$L0 - df_sub$L1)$p.value > 0.05) {
+        t.test(df_sub$L0, df_sub$L1, paired = TRUE)$p.value
+      } else {
+        wilcox.test(df_sub$L0, df_sub$L1, paired = TRUE)$p.value
+      }
+      
+      # 0 vs 2 test
+      p2 <- if (shapiro.test(df_sub$L0 - df_sub$L2)$p.value > 0.05) {
+        t.test(df_sub$L0, df_sub$L2, paired = TRUE)$p.value
+      } else {
+        wilcox.test(df_sub$L0, df_sub$L2, paired = TRUE)$p.value
+      }
+      
+      synergy_load_results <- rbind(synergy_load_results, data.frame(
+        Variable = var,
+        Arm = arm,
+        `p_0_vs_1_` = round(p1, 4),
+        `p_0_vs_1_significant` = ifelse(p1 < 0.05, "Yes", "No"),
+        `p_0_vs_2_` = round(p2, 4),
+        `p_0_vs_2_significant` = ifelse(p2 < 0.05, "Yes", "No")
+      ))
+    }
+  }
+}
+
+print(synergy_load_results)
+
+```
+
+#### Mean synergies
+
+```{r}
+
+significant_synergy_vars <- list(
+  # Formato: c("Variable", "Arm", "Loads involucrados")
+  list(var = "SynBicepsFlex", arm = "DOM", loads = c(0, 2)),
+  list(var = "SynBicepsFlex", arm = "NDOM", loads = c(0, 1, 2)),
+  list(var = "SynBicepsExt", arm = "DOM", loads = c(0, 2)),
+  list(var = "SynBicepsExt", arm = "NDOM", loads = c(0, 1, 2))
+)
+
+synergy_means <- data.frame()
+
+for (entry in significant_synergy_vars) {
+  var <- entry$var
+  arm <- entry$arm
+  loads <- entry$loads
+  
+  means <- data %>%
+    filter(Arm == arm, `Load (kg)` %in% loads) %>%
+    group_by(`Load (kg)`) %>%
+    summarise(
+      Mean_Synergy = mean(.data[[var]], na.rm = TRUE),
+      SD_Synergy = sd(.data[[var]], na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      Variable = var,
+      Arm = arm
+    )
+  
+  synergy_means <- bind_rows(synergy_means, means)
+}
+
+synergy_means <- synergy_means %>%
+  select(Variable, Arm, `Load (kg)`, Mean_Synergy, SD_Synergy)
+
+print(synergy_means)
+
+
+```
